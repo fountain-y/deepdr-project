@@ -10,10 +10,12 @@ import random
 import numpy as np
 import argparse
 import os
-from kappa import kappa
+import kappa
 from efficientnet_pytorch.model import EfficientNet
 from torchvision import models
 from collections import OrderedDict
+
+from torchstat import stat
 
 my_whole_seed = 111
 torch.manual_seed(my_whole_seed)
@@ -28,7 +30,7 @@ import shutil
 import time
 from sklearn.metrics import roc_auc_score, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.preprocessing import label_binarize
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 
 best_acc1 = 0
@@ -70,7 +72,7 @@ def main(model_name):
         pretrain_path = './densenet121-a639ec97.pth'
     elif model_name == "inception-v3":
         model = models.inception_v3(pretrained=False,init_weights=True)
-        pretrain_path = './inception_v3_google-1a9a5a14.pth'
+        pretrain_path = './inception_v3_google-0cc3c7bd.pth'
 
     else:
         print("no model")
@@ -160,6 +162,12 @@ def main(model_name):
         csv_path='./dataset/regular_fundus_images/regular-fundus-validation/regular-fundus-validation.csv',
         root='./dataset/regular_fundus_images/regular-fundus-validation/Images', transform=transform_test)
 
+    
+    parms_summary = get_parameter_number(model)
+    print(parms_summary)
+    
+    # stat(model, (1, 3, 224, 224))
+    
     batch_size = 24
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
@@ -173,7 +181,10 @@ def main(model_name):
 
     # from lr_scheduler import LRScheduler
     # lr_scheduler = LRScheduler(optimizer, len(train_loader))
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5)
+    
+    writer = SummaryWriter('tf_logs')
 
     n_epochs = 50
     for epoch in range(n_epochs):
@@ -186,9 +197,8 @@ def main(model_name):
         is_best_acc = False
 
         # train for one epoch
-        loss_train, acc_train, kappa_train = train(train_loader, model, criterion1, criterion2, lr_scheduler, epoch, optimizer,device)
-        # writer.add_scalar('Train loss', loss_train, epoch)
-
+        loss_train, acc_train, kappa_train = train(train_loader, model, criterion1, criterion2, lr_scheduler, epoch, optimizer, writer, device)
+        
         # evaluate on validation set
         acc, kappa_val, precision_dr, recall_dr, f1score_dr = validate(val_loader, model, device)
 
@@ -197,13 +207,22 @@ def main(model_name):
 
         is_best_kap = kappa_val >= best_kap
         best_kap = max(kappa_val, best_kap)
+        
+        # writer.add_scalar('train/Train loss', loss_train, epoch)
+        writer.add_scalar('train/Train Acc', 100*acc_train, epoch)
+        writer.add_scalar('train/Train Kappa', kappa_train, epoch)
+        writer.add_scalar('val/Val Acc', 100*acc, epoch)
+        writer.add_scalar('val/Val Kappa', kappa_val, epoch)
+        # writer.add_scalar('lr', optimizer.state_dict()['param_groups'][0]['lr'], epoch)
 
-        print("Train Loss:{:.4f}, Train Acc:{:.4f}%, Val Acc:{:.4f}%".format(loss_train, 100*acc_train,100*acc))
+        print("Train Loss:{:.4f}, Train Acc:{:.4f}%, Val Acc:{:.4f}%".format(loss_train, 100*acc_train, 100*acc))
         print("Train Kappa:{:.4f}, Val Kappa:{:.4f}".format(kappa_train,kappa_val))
         print("Best Acc:{:.4f}%, Best Kappa:{:.4f}".format(100 * best_acc1,best_kap))
+        
+    writer.close()
 
 
-def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optimizer,device):
+def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optimizer, writer, device):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -213,6 +232,7 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
     all_target = []
     all_output = []
 
+    iters = len(train_loader)
     for i, (input, target, patient_level) in enumerate(train_loader):
 
         input = [item.to(device) for item in input]
@@ -256,9 +276,15 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        # lr_scheduler.step(epoch + i / iters)
 
         if i % 10 == 0:
             print('train epoch: {} \tloss: {:.6f}\t'.format(epoch + 1, loss.item()))
+            print('train lr: {}'.format(optimizer.state_dict()['param_groups'][0]['lr']))
+        
+        writer.add_scalar('train/Train loss', losses.avg, epoch * iters + i)
+        writer.add_scalar('lr', optimizer.state_dict()['param_groups'][0]['lr'], epoch * iters + i)
+        
 
     all_target = [item for sublist in all_target for item in sublist]
     all_output = [item for sublist in all_output for item in sublist]
@@ -439,11 +465,26 @@ def quadratic_kappa(actuals, preds, N=5):
             den += w[i][j] * E[i][j]
     return (1 - (num / den))
 
+def get_parameter_number(model):
+    total_num = sum(p.numel() for p in model.parameters())
+    trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return {'Total': total_num, 'Trainable': trainable_num}
+
 if __name__ == '__main__':
+    # backbone = 'resnet50'
+    # backbone = 'resnet101'
+    # backbone = 'efficient-b1'
+    backbone = 'efficient-b3'
+    # backbone = 'efficient-b4'
+    # backbone = 'densenet121'
+    # backbone = 'inception-v3'
+    # backbone = 'efficient-b3'
     # main("resnet50")
     # main("resnet101")
-    main("efficient-b1")
+    # main("efficient-b1")
     # main("efficient-b3")
     # main("efficient-b4")
     # main("densenet121")
     # main("inception-v3")
+    print('backbone : ', backbone)
+    main(backbone)

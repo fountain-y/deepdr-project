@@ -37,14 +37,24 @@ def read_csv(csv_path):
                 file_info['eye_index'] = int(i / 2)
                 file_info['img_path1'] = new_path
 
-                if row[1].split('_')[-1][0] == 'l':
+                # if row[1].split('_')[-1][0] == 'l':
+                #     file_info['eye_level1'] = int(row[4])
+                # else:
+                #     file_info['eye_level1'] = int(row[5])
+                    
+                if row[4] != '':
                     file_info['eye_level1'] = int(row[4])
                 else:
                     file_info['eye_level1'] = int(row[5])
             else:
                 file_info['img_path2'] = new_path
 
-                if row[1].split('_')[-1][0] == 'l':
+                # if row[1].split('_')[-1][0] == 'l':
+                #     file_info['eye_level2'] = int(row[4])
+                # else:
+                #     file_info['eye_level2'] = int(row[5])
+                    
+                if row[4] != '':
                     file_info['eye_level2'] = int(row[4])
                 else:
                     file_info['eye_level2'] = int(row[5])
