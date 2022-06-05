@@ -333,8 +333,8 @@ class ResNet(nn.Module):
             x2 = torch.stack([x2, x1_att], dim=0).sum(dim=0)
 
             # final classifier
-            x1 = self.classifier1(x1)
-            x2 = self.classifier2(x2)
+            x1 = self.classifier(x1)
+            x2 = self.classifier(x2)
 
             return x1, x2, out1, out2
 
@@ -413,7 +413,9 @@ def resnet50(pretrained=False, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    print(pretrained)
     if pretrained:
+        print('pretrained')
         model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
     return model
 

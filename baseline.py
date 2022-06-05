@@ -10,7 +10,7 @@ import random
 import numpy as np
 import argparse
 import os
-from kappa import kappa
+# from kappa import kappa
 
 my_whole_seed = 111
 torch.manual_seed(my_whole_seed)
@@ -35,7 +35,7 @@ best_accdr = 0
 minimum_loss = 1.0
 count = 0
 
-def main():
+def main(model_parms):
     global best_acc1
     global best_auc
     global best_kap
@@ -48,8 +48,13 @@ def main():
 
     # load model
     from models.resnet50 import resnet50
-    model = resnet50(num_classes=5, origin=True)
-    # model = resnet50(num_classes=5, simple= True, test=True, crossCBAM=True)
+    # model = resnet50(num_classes=5, origin=True)
+    # model_parms = dict(
+    #     num_classes=5, simple= True, test=True, crossCBAM=True, 
+    # )
+    print(model_parms)
+    multi = model_parms.pop('multi')
+    model = resnet50(**model_parms)
 
     print ("==> Load pretrained model")
     model_dict = model.state_dict()
@@ -140,7 +145,8 @@ def main():
     # 原文使用cosine annealing for each batch
     # from lr_scheduler import LRScheduler
     # lr_scheduler = LRScheduler(optimizer, len(train_loader))
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5)
 
     n_epochs = 50
     for epoch in range(n_epochs):
@@ -153,11 +159,11 @@ def main():
         is_best_acc = False
 
         # train for one epoch
-        loss_train, acc_train, kappa_train = train(train_loader, model, criterion1, criterion2, lr_scheduler, epoch, optimizer,device)
+        loss_train, acc_train, kappa_train = train(train_loader, model, criterion1, criterion2, lr_scheduler, epoch, optimizer,device, multi)
         # writer.add_scalar('Train loss', loss_train, epoch)
 
         # evaluate on validation set
-        acc, kappa_val, precision_dr, recall_dr, f1score_dr = validate(val_loader, model, device)
+        acc, kappa_val, precision_dr, recall_dr, f1score_dr = validate(val_loader, model, device, multi)
 
         is_best = acc >= best_acc1
         best_acc1 = max(acc, best_acc1)
@@ -170,7 +176,7 @@ def main():
         print("Best Acc:{:.4f}%, Best Kappa:{:.4f}".format(100 * best_acc1,best_kap))
 
 
-def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optimizer,device):
+def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optimizer, device, multi=False):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -180,6 +186,7 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
     all_target = []
     all_output = []
 
+    iters = len(train_loader)
     for i, (input, target, patient_level) in enumerate(train_loader):
 
         # data = [item.to(device) for item in data]
@@ -187,29 +194,29 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
         target = [item.to(device) for item in target]
         patient_level = patient_level.to(device)
 
+        if multi:
+            ## multi input
+            output = model(input[0],input[1])
+            _, pred1 = torch.max(output[0].data, 1)
+            _, pred2 = torch.max(output[1].data, 1)
+            # 两个图分别的loss
+            loss1 = criterion(output[0], target[0])
+            loss2 = criterion(output[1], target[1])
+            # 两个图smoothL1
+            loss3 = criterion2(output[0], output[1])
+            # 交叉attention之后的最终类别loss
+            # loss4 = criterion(output[2], patient_level)
+        else:
+            ## single input
+            output1 = model(input[0])
+            output2 = model(input[0])
+            _, pred1 = torch.max(output1.data, 1)
+            _, pred2 = torch.max(output2.data, 1)
 
-        ### multi input
-        # output = model(input[0],input[1])
-        # _, pred1 = torch.max(output[0].data, 1)
-        # _, pred2 = torch.max(output[1].data, 1)
-        # 两个图分别的loss
-        # loss1 = criterion(output[0], target[0])
-        # loss2 = criterion(output[1], target[1])
-        # # 两个图smoothL1
-        # loss3 = criterion2(output[0], output[1])
-        # # 交叉attention之后的最终类别loss
-        # # loss4 = criterion(output[2], patient_level)
-
-        ## single input
-        output1 = model(input[0])
-        output2 = model(input[0])
-        _, pred1 = torch.max(output1.data, 1)
-        _, pred2 = torch.max(output2.data, 1)
-
-        loss1 = criterion(output1, target[0])
-        loss2 = criterion(output2, target[1])
-        # 两个图smoothL1
-        loss3 = criterion2(output1, output2)
+            loss1 = criterion(output1, target[0])
+            loss2 = criterion(output2, target[1])
+            # 两个图smoothL1
+            loss3 = criterion2(output1, output2)
 
         # print(pred1,pred2)
         output_patient = torch.max(pred1,pred2)
@@ -229,6 +236,7 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        lr_scheduler.step(epoch + i / iters)
 
         if i % 10 == 0:
             print('train epoch: {} \tloss: {:.6f}\t'.format(epoch + 1, loss.item()))
@@ -244,7 +252,7 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
 from sklearn.metrics import confusion_matrix
 import scipy.misc
 
-def validate(val_loader, model, device):
+def validate(val_loader, model, device, multi=False):
     # switch to evaluate mode
     model.eval()
 
@@ -256,23 +264,24 @@ def validate(val_loader, model, device):
             target = [item.to(device) for item in target]
             patient_level = patient_level.to(device)
 
-            ### multi input
-            # output = model(input[0],input[1])
-            # _, pred1 = torch.max(output[0].data, 1)
-            # _, pred2 = torch.max(output[1].data, 1)
-            # 两个图分别的loss
-            # loss1 = criterion(output[0], target[0])
-            # loss2 = criterion(output[1], target[1])
-            # # 两个图smoothL1
-            # loss3 = criterion2(output[0], output[1])
-            # # 交叉attention之后的最终类别loss
-            # # loss4 = criterion(output[2], patient_level)
-
-            ## single input
-            output1 = model(input[0])
-            output2 = model(input[0])
-            _, pred1 = torch.max(output1.data, 1)
-            _, pred2 = torch.max(output2.data, 1)
+            if multi:
+                ## multi input
+                output = model(input[0],input[1])
+                _, pred1 = torch.max(output[0].data, 1)
+                _, pred2 = torch.max(output[1].data, 1)
+                # # 两个图分别的loss
+                # loss1 = criterion(output[0], target[0])
+                # loss2 = criterion(output[1], target[1])
+                # # 两个图smoothL1
+                # loss3 = criterion2(output[0], output[1])
+                # # 交叉attention之后的最终类别loss
+                # # loss4 = criterion(output[2], patient_level)
+            else:
+                ## single input
+                output1 = model(input[0])
+                output2 = model(input[0])
+                _, pred1 = torch.max(output1.data, 1)
+                _, pred2 = torch.max(output2.data, 1)
 
             # output_patient = torch.max(pred1, pred2)
 
@@ -425,4 +434,16 @@ def quadratic_kappa(actuals, preds, N=5):
     return (1 - (num / den))
 
 if __name__ == '__main__':
-    main()
+    # model_parms = dict(
+    #     num_classes=5, origin=True, simple=False, test=False, crossCBAM=False, crosspatialCBAM=False 
+    # )
+    # model_parms = dict(
+    #     num_classes=5, origin=False, simple=True, test=False, crossCBAM=False, crosspatialCBAM=False 
+    # )
+    model_parms = dict(
+        num_classes=5, origin=False, simple=False, test=False, crossCBAM=True, crosspatialCBAM=False, multi=True
+    )
+    # model_parms = dict(
+    #     num_classes=5, origin=False, simple=False, test=False, crossCBAM=False, crosspatialCBAM=True, multi=True
+    # )
+    main(model_parms)

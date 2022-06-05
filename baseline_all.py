@@ -17,6 +17,8 @@ from collections import OrderedDict
 
 from torchstat import stat
 
+from VIT import ViT
+
 my_whole_seed = 111
 torch.manual_seed(my_whole_seed)
 torch.cuda.manual_seed_all(my_whole_seed)
@@ -51,6 +53,9 @@ def main(model_name):
     print(device)
 
     print ("==> Load pretrained model")
+    
+    resizeshape = 256
+    cropsize = 224
 
     if model_name == "resnet50":
         model = models.resnet50(pretrained=False)
@@ -71,8 +76,12 @@ def main(model_name):
         model = models.densenet121(pretrained=False)
         pretrain_path = './densenet121-a639ec97.pth'
     elif model_name == "inception-v3":
+        resizeshape = 512
+        cropsize = 299
         model = models.inception_v3(pretrained=False,init_weights=True)
         pretrain_path = './inception_v3_google-0cc3c7bd.pth'
+    elif model_name == 'vit-b-16':
+        model = ViT()
 
     else:
         print("no model")
@@ -84,6 +93,8 @@ def main(model_name):
         pretrained_dict = {k: v for k, v in model_dict.items() if k in model_dict}
         model_dict.update(pretrained_dict)
         model.load_state_dict(model_dict)
+    elif model_name == 'vit-b-16':
+        pass
     else:
         model.load_state_dict(torch.load(pretrain_path),False)
 
@@ -95,9 +106,13 @@ def main(model_name):
     elif model_name == "densenet121":
         fc_features = model.classifier.in_features
         model.classifier = nn.Linear(fc_features, 5)
+    elif model_name == 'vit-b-16':
+        pass
     else:
         fc_features = model.fc.in_features
         model.fc = nn.Linear(fc_features, 5)
+        
+    
 
     model = model.to(device)
 
@@ -108,8 +123,8 @@ def main(model_name):
     transform = transforms.Compose(
         [
             # transforms.Resize(512),
-            transforms.Resize(256),
-            transforms.RandomResizedCrop(224),
+            transforms.Resize(resizeshape),
+            transforms.RandomResizedCrop(cropsize),
             # transforms.CenterCrop(448),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
@@ -122,9 +137,9 @@ def main(model_name):
     transform_test = transforms.Compose(
         [
             # transforms.Resize(512),
-            transforms.Resize(256),
+            transforms.Resize(resizeshape),
             # transforms.Resize(400),
-            transforms.CenterCrop(224),
+            transforms.CenterCrop(cropsize),
             # transforms.CenterCrop(448),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -244,7 +259,7 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
         output0 = model(input[0])
         output1 = model(input[1])
 
-        # inception-v3
+        # # inception-v3
         # output0, _ = model(input[0])
         # output1, _ = model(input[1])
 
@@ -267,16 +282,17 @@ def train(train_loader, model, criterion, criterion2, lr_scheduler, epoch, optim
         # loss1 = criterion(output, patient_level)
         loss2 = criterion2(output0, output1)
 
-        # loss = lossa+lossb+loss2
-        loss = lossa + lossb
+        loss = lossa+lossb+loss2
+        # loss = lossa + lossb
         # loss3 = criterion3(pred_res,patient_label)
+        # loss = loss2
 
         losses.update(loss.item(), len(patient_level))
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # lr_scheduler.step(epoch + i / iters)
+        lr_scheduler.step(epoch + i / iters)
 
         if i % 10 == 0:
             print('train epoch: {} \tloss: {:.6f}\t'.format(epoch + 1, loss.item()))
@@ -471,20 +487,13 @@ def get_parameter_number(model):
     return {'Total': total_num, 'Trainable': trainable_num}
 
 if __name__ == '__main__':
-    # backbone = 'resnet50'
+    backbone = 'resnet50'
     # backbone = 'resnet101'
     # backbone = 'efficient-b1'
-    backbone = 'efficient-b3'
+    # backbone = 'efficient-b3'
     # backbone = 'efficient-b4'
     # backbone = 'densenet121'
     # backbone = 'inception-v3'
-    # backbone = 'efficient-b3'
-    # main("resnet50")
-    # main("resnet101")
-    # main("efficient-b1")
-    # main("efficient-b3")
-    # main("efficient-b4")
-    # main("densenet121")
-    # main("inception-v3")
+    # backbone = 'vit-b-16'
     print('backbone : ', backbone)
     main(backbone)

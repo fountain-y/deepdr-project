@@ -6,11 +6,11 @@
 
 ./baseline.py Resnet50+ABM主程序
 
-./baseline3.py 使用其他预训练模型主程序
+./baseline_all.py 使用其他预训练模型主程序
 
 ./pre_processing.py  基于Ben's preprocessing的预处理，因结果相差不大没用在最后的实验里
 
-./dataset.py 数据类
+./dataset.py 数据集类
 
 ./models/resnet50.py  在CANet[^1]基础上修改的Resnet50+BAM模型（包含单输入Resnet50+BAM，双输入Resnet50+BAM+融合两幅图像的结果，双输入+BAM+CBAM），但排列组合试了多种网络结构/数据增强/loss/学习率调整方法，都和只使用Resnet50相差不大
 
@@ -39,27 +39,46 @@
 
 ## Result
 
+### Backbone
+
 Use all model  pre-trained on ImageNet
 
 
-| Method          | Image_size | Loss   | Kappa  |
-| --------------- | :--------- | ------ | :----- |
-| ResNet101       | 256 × 256  | CE+SL1 | 0.8095 |
-| EfficientNet-b1 | 256 × 256  | CE+SL1 | 0.8140 |
-| EfficientNet-b3 | 256 × 256  | CE+SL1 | 0.7969 |
-| EfficientNet-b4 | 256 × 256  | CE+SL1 | 0.7990 |
-| DenseNet121     | 256 × 256  | CE+SL1 | 0.5650 |
-| InceptionV3     | 512 × 512  | CE+SL1 | 0.8249 |
+| Method          | Imagesize | Parms    | Val_Acc | Kappa  |
+| --------------- | --------- | -------- | ------- | ------ |
+| ResNet-50       | 256 × 256 | 23510081 | 69.25   | 0.8135 |
+| ResNet-101      | 256 × 256 | 42510405 | 67.25   | 0.8087 |
+| DenseNet121     | 256 × 256 | 6958981  | 57.50   | 0.5952 |
+| InceptionV3     | 512 × 512 | 25122509 | 63.75   | 0.7968 |
+| EfficientNet-b1 | 256 × 256 | 6519589  | 71.00   | 0.8347 |
+| EfficientNet-b3 | 256 × 256 | 10703917 | 68.25   | 0.8160 |
+| EfficientNet-b4 | 256 × 256 | 17557581 | 67.75   | 0.8159 |
+| ViT             | 256 × 256 | 85802501 | 54.25   | 0.5766 |
 
+### Loss
 
+| Method          | Loss   | Val_Acc | Kappa  |
+| --------------- | ------ | ------- | ------ |
+| ResNet-50       | CE     | 69.25   | 0.8135 |
+| ResNet-50       | CE+SL1 | 69.50   | 0.8237 |
+| EfficientNet-b1 | CE     | 71.00   | 0.8347 |
+| EfficientNet-b1 | CE+SL1 | 71.25   | 0.8353 |
+### Pretrained
 
+| Method          | Pretrain       | Val_Acc | Kappa  |
+| --------------- | -------------- | ------- | ------ |
+| EfficientNet-b1 | ImageNet       | 71.00   | 0.8347 |
+| EfficientNet-b1 | APTOS(5epoch)  | 71.25   | 0.8357 |
+| EfficientNet-b1 | APTOS(50epoch) | 71.75   | 0.8362 |
+### CBAM
 
-| Method         | Image_size | Loss   | Kappa  |
-| -------------- | :--------- | ------ | :----- |
-| ResNet50       | 256 × 256  | CE     | 0.7866 |
-| ResNet50       | 256 × 256  | CE+SL1 | 0.7866 |
-| ResNet50 + BAM | 256 × 256  | CE     | 0.8147 |
-| ResNet50 + BAM | 256 × 256  | CE+SL1 | 0.8193 |
+| Method                               | Loss   | Val_Acc | Kappa  |
+| ------------------------------------ | ------ | ------- | ------ |
+| ResNet-50                            | CE+SL1 | 69.25   | 0.8135 |
+| ResNet-50 + CBAM                     | CE+SL1 | 67.25   | 0.8087 |
+| ResNet-50 + SBAM                     | CE+SL1 | 69.00   | 0.8132 |
+| ResNet-50 + Cross-CBAM               | CE+SL1 | 69.50   | 0.8347 |
+| ResNet-50 + Cross-CBAM(LR_Scheduler) | CE+SL1 | 71.00   | 0.8443 |
 
 
 

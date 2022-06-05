@@ -1,5 +1,5 @@
 time=$(date +%Y%m%d_%H%M%S)
-filename=baseline_all.py
+filename=baseline.py
 logname="logs/$time.log"
 # echo $name
 # echo $time
